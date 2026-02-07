@@ -1,98 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Mini Minecraft</title>
-<style>
-  body {
-    margin: 0;
-    background: #87ceeb;
-    overflow: hidden;
-  }
-  canvas {
-    display: block;
-    margin: auto;
-    background: #6ab04c;
-  }
-</style>
+    <meta charset="UTF-8">
+    <title>Mini Minecraft Pro</title>
+    <style>
+        body { margin: 0; background: #222; font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; pointer-events: none; }
+        canvas { border: 4px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: crosshair; }
+        .key { background: #555; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; }
+    </style>
 </head>
 <body>
 
-<canvas id="game" width="800" height="600"></canvas>
+<div id="ui">
+    <div><strong>Inventory:</strong> <span id="active-block" style="color: #2ecc71">GRASS</span></div>
+    <div style="margin-top: 5px;">
+        <span class="key">W</span> Jump | <span class="key">A</span><span class="key">D</span> Move<br>
+        <span class="key">1</span>-<span class="key">3</span> Switch Blocks | <span class="key">L-Click</span> Break | <span class="key">R-Click</span> Place
+    </div>
+</div>
+
+<canvas id="game"></canvas>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const TILE = 40;
-const ROWS = 15;
-const COLS = 20;
+// Configuration
+const TILE = 32;
+const COLS = 30;
+const ROWS = 20;
+canvas.width = COLS * TILE;
+canvas.height = ROWS * TILE;
 
-const blocks = {
-  air: "#87ceeb",
-  grass: "#2ecc71",
-  dirt: "#8e5a2a",
-  stone: "#7f8c8d"
+const BLOCKS = {
+    air:   { color: "#87ceeb", solid: false },
+    grass: { color: "#2ecc71", solid: true },
+    dirt:  { color: "#8e5a2a", solid: true },
+    stone: { color: "#7f8c8d", solid: true },
+    wood:  { color: "#a6785d", solid: true }
 };
 
-let selectedBlock = "dirt";
+let inventory = ["grass", "dirt", "stone"];
+let selectedIdx = 0;
 
+// World Generation (Hills)
 let world = [];
-for (let y = 0; y < ROWS; y++) {
-  world[y] = [];
-  for (let x = 0; x < COLS; x++) {
-    world[y][x] = y > 8 ? "dirt" : y === 8 ? "grass" : "air";
-  }
+function generateWorld() {
+    let groundLevel = 12;
+    for (let y = 0; y < ROWS; y++) {
+        world[y] = [];
+        for (let x = 0; x < COLS; x++) {
+            // Simple "Noise" for hills
+            let hillHeight = Math.sin(x * 0.3) * 2;
+            let currentGround = groundLevel + Math.floor(hillHeight);
+            
+            if (y < currentGround) world[y][x] = "air";
+            else if (y === currentGround) world[y][x] = "grass";
+            else if (y < currentGround + 3) world[y][x] = "dirt";
+            else world[y][x] = "stone";
+        }
+    }
 }
 
-let player = { x: 10, y: 7 };
+// Player Object
+let player = {
+    x: 5 * TILE,
+    y: 5 * TILE,
+    w: TILE * 0.7,
+    h: TILE * 0.9,
+    vx: 0,
+    vy: 0,
+    speed: 4,
+    jump: -10,
+    gravity: 0.5,
+    grounded: false
+};
+
+// Input Handling
+let keys = {};
+window.onkeydown = (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if (e.key === "1") selectedIdx = 0;
+    if (e.key === "2") selectedIdx = 1;
+    if (e.key === "3") selectedIdx = 2;
+    document.getElementById("active-block").innerText = inventory[selectedIdx].toUpperCase();
+    document.getElementById("active-block").style.color = BLOCKS[inventory[selectedIdx]].color;
+};
+window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
+
+function checkCollision(nx, ny) {
+    let gridX1 = Math.floor(nx / TILE);
+    let gridY1 = Math.floor(ny / TILE);
+    let gridX2 = Math.floor((nx + player.w) / TILE);
+    let gridY2 = Math.floor((ny + player.h) / TILE);
+
+    for (let y = gridY1; y <= gridY2; y++) {
+        for (let x = gridX1; x <= gridX2; x++) {
+            if (world[y] && world[y][x] && BLOCKS[world[y][x]].solid) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function update() {
+    // Horizontal Movement
+    player.vx = 0;
+    if (keys['a']) player.vx = -player.speed;
+    if (keys['d']) player.vx = player.speed;
+
+    if (!checkCollision(player.x + player.vx, player.y)) {
+        player.x += player.vx;
+    }
+
+    // Gravity & Jump
+    player.vy += player.gravity;
+    if ((keys['w'] || keys[' ']) && player.grounded) {
+        player.vy = player.jump;
+        player.grounded = false;
+    }
+
+    // Vertical Movement & Collision
+    if (!checkCollision(player.x, player.y + player.vy)) {
+        player.y += player.vy;
+        player.grounded = false;
+    } else {
+        if (player.vy > 0) player.grounded = true;
+        player.vy = 0;
+    }
+
+    // Wrap around or bounds
+    player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+}
+
+let mouseX = 0, mouseY = 0;
+canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+};
+
+canvas.onmousedown = (e) => {
+    const x = Math.floor(mouseX / TILE);
+    const y = Math.floor(mouseY / TILE);
+    if (y < 0 || y >= ROWS || x < 0 || x >= COLS) return;
+
+    if (e.button === 0) world[y][x] = "air";
+    if (e.button === 2) {
+        // Only place if not overlapping player
+        if (!(x === Math.floor(player.x/TILE) && y === Math.floor(player.y/TILE))) {
+            world[y][x] = inventory[selectedIdx];
+        }
+    }
+};
 
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Draw Sky
+    ctx.fillStyle = "#87ceeb";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  for (let y = 0; y < ROWS; y++) {
-    for (let x = 0; x < COLS; x++) {
-      ctx.fillStyle = blocks[world[y][x]];
-      ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-      ctx.strokeRect(x * TILE, y * TILE, TILE, TILE);
+    // Draw World
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            if (world[y][x] !== "air") {
+                ctx.fillStyle = BLOCKS[world[y][x]].color;
+                ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+                // Simple shading
+                ctx.strokeStyle = "rgba(0,0,0,0.1)";
+                ctx.strokeRect(x * TILE, y * TILE, TILE, TILE);
+            }
+        }
     }
-  }
 
-  ctx.fillStyle = "red";
-  ctx.fillRect(player.x * TILE + 8, player.y * TILE + 8, 24, 24);
+    // Selection Box
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(Math.floor(mouseX/TILE)*TILE, Math.floor(mouseY/TILE)*TILE, TILE, TILE);
+
+    // Draw Player
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(player.x, player.y, player.w, player.h);
 }
-
-document.addEventListener("keydown", e => {
-  if (e.key === "w") player.y--;
-  if (e.key === "s") player.y++;
-  if (e.key === "a") player.x--;
-  if (e.key === "d") player.x++;
-
-  player.x = Math.max(0, Math.min(COLS - 1, player.x));
-  player.y = Math.max(0, Math.min(ROWS - 1, player.y));
-});
-
-canvas.addEventListener("mousedown", e => {
-  const x = Math.floor(e.offsetX / TILE);
-  const y = Math.floor(e.offsetY / TILE);
-
-  if (e.button === 0) {
-    world[y][x] = "air"; // break block
-  }
-  if (e.button === 2) {
-    world[y][x] = selectedBlock; // place block
-  }
-});
 
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 
+generateWorld();
 function loop() {
-  draw();
-  requestAnimationFrame(loop);
+    update();
+    draw();
+    requestAnimationFrame(loop);
 }
-
 loop();
 </script>
-
 </body>
 </html>
